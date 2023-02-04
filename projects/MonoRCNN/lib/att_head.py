@@ -15,6 +15,8 @@ from detectron2.structures import Instances
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.registry import Registry
 
+from lib.fixed_polygon_iou_loss import batch_poly_diou_loss
+
 __all__ = ["ATTHead", "build_att_head", "ROI_ATT_HEAD_REGISTRY"]
 
 ROI_ATT_HEAD_REGISTRY = Registry("ROI_ATT_HEAD")
@@ -167,12 +169,13 @@ class ATTHead(nn.Module):
         pred_yaws = self.yaw_layer(x)
         pred_kpts = self.kpt_layer(x)
         if self.training:
-            loss_cen, loss_kpt = self.kpt_rcnn_loss(pred_kpts, instances)
+            loss_cen, loss_kpt, loss_kpt_iou = self.kpt_rcnn_loss(pred_kpts, instances)
             return {
                 "loss_dim": self.dim_rcnn_loss(pred_dims, instances),
                 "loss_yaw": self.yaw_rcnn_loss(pred_yaws, instances),
                 "loss_cen": loss_cen,
                 "loss_kpt": loss_kpt * self.kpt_loss_weight,
+                "loss_kpt_iou": loss_kpt_iou * self.kpt_loss_weight,
             }
         else:
             self.dim_rcnn_inference(pred_dims, instances)
@@ -296,13 +299,32 @@ class ATTHead(nn.Module):
             pred_kpts_trans[index, :] = pred_kpts[index, (self.num_kpts * 2 + 1) * i:(self.num_kpts * 2 + 1) * (i + 1)]
         pred_cens_trans_uncer = pred_kpts_trans[:, self.num_kpts * 2:]
         pred_kpts_trans = pred_kpts_trans[:, :self.num_kpts * 2]
-        
+
+        device = pred_kpts_trans.device
+        displacement = torch.tensor([-1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, 0, 0], device=device)
+        pred_kpts_trans = pred_kpts_trans + displacement
+
         loss_kpt = smooth_l1_loss(
             pred_kpts_trans[:, :16],
             gt_kpts_trans[:, :16],
             self.smooth_l1_beta,
             reduction="none",
         )
+
+        pred = pred_kpts_trans[:, :16].view(-1, 8, 2)
+        front = pred[:, [0, 1, 5, 4]]
+        back = pred[:, [3, 2, 6, 7]]
+        target = gt_kpts_trans[:, :16].view(-1, 8, 2)
+        tg_front = target[:, [0, 1, 5, 4]]
+        tg_back = target[:, [3, 2, 6, 7]]
+
+        if front.shape[0] == 0 or back.shape[0] == 0:
+            loss_kpt_iou = torch.tensor([0], device=front.get_device())
+        else:
+            loss_kpt_iou = batch_poly_diou_loss(front, tg_front, a=0).sum() \
+               + batch_poly_diou_loss(back, tg_back, a=0).sum()
+        loss_kpt_iou = loss_kpt_iou / (self.num_regions * 4)
+
         loss_cen = smooth_l1_loss(
             pred_kpts_trans[:, 16:],
             gt_kpts_trans[:, 16:],
@@ -310,7 +332,7 @@ class ATTHead(nn.Module):
             reduction="none",
         )
         loss_cen = loss_cen * ((-pred_cens_trans_uncer).exp())
-        return (loss_cen.sum() + pred_cens_trans_uncer.sum()) / self.num_regions, loss_kpt.sum() / (self.num_regions * self.num_kpts)
+        return (loss_cen.sum() + pred_cens_trans_uncer.sum()) / self.num_regions, loss_kpt.sum() / (self.num_regions * self.num_kpts), loss_kpt_iou
 
     def kpt_rcnn_inference(self, pred_kpts, pred_instances):
         num_instances_per_image = [len(i) for i in pred_instances]
@@ -321,6 +343,9 @@ class ATTHead(nn.Module):
             for i in range(self.num_classes):
                 index = classes_per_image == i
                 pred_kpts_per_image[index, :] = kpts_per_image[index, (self.num_kpts * 2 + 1) * i:(self.num_kpts * 2 + 1) * (i + 1)]
+            device = pred_kpts_per_image.device
+            displacement = torch.tensor([-1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, 0, 0], device=device)
+            pred_kpts_per_image = pred_kpts_per_image + displacement
             instances_per_image.pred_proj_kpts = self.convert_kpts_inv(pred_kpts_per_image[:, :self.num_kpts * 2], instances_per_image.pred_boxes.tensor)
 
 

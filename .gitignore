@@ -1,0 +1,8 @@
+/projects/MonoRCNN/output/
+.idea/
+/projects/KITTI/training/
+/projects/KITTI/val1/cpp/evaluate_object
+/projects/KITTI/val1/train/
+/projects/KITTI/val1/val/
+/projects/KITTI/val1/KITTI_val1_train.json
+/projects/KITTI/val1/KITTI_val1_val.json
