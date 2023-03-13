@@ -323,7 +323,7 @@ class ATTHead(nn.Module):
         else:
             loss_kpt_iou = batch_poly_diou_loss(front, tg_front, a=0).sum() \
                + batch_poly_diou_loss(back, tg_back, a=0).sum()
-        loss_kpt_iou = loss_kpt_iou / (self.num_regions * 4)
+        loss_kpt_iou = loss_kpt_iou / (self.num_regions * 6)
 
         loss_cen = smooth_l1_loss(
             pred_kpts_trans[:, 16:],
@@ -344,7 +344,7 @@ class ATTHead(nn.Module):
                 index = classes_per_image == i
                 pred_kpts_per_image[index, :] = kpts_per_image[index, (self.num_kpts * 2 + 1) * i:(self.num_kpts * 2 + 1) * (i + 1)]
             device = pred_kpts_per_image.device
-            displacement = torch.tensor([-1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, 0, 0], device=device)
+            displacement = torch.tensor([-1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, 0, 0, 0], device=device)
             pred_kpts_per_image = pred_kpts_per_image + displacement
             instances_per_image.pred_proj_kpts = self.convert_kpts_inv(pred_kpts_per_image[:, :self.num_kpts * 2], instances_per_image.pred_boxes.tensor)
 

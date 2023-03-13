@@ -1,3 +1,10 @@
+# Changes
+We incorporate PIoU loss in projects/MonoRCNN/lib/att_head.py.
+
+To use only L1 loss, delete lines 321-326 in att_head.py and fix loss_kpt_iou to be 0.
+
+config files for L1 and L1+PIoU loss are in projects/MonoRCNN/config/.
+
 # MonoRCNN
 MonoRCNN is a monocular 3D object detection method for autonomous driving, published at ICCV 2021 and WACV 2023. This project is an implementation of MonoRCNN.
 
